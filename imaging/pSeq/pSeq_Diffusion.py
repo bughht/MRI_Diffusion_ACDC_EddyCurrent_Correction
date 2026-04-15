@@ -73,14 +73,15 @@ class pSeq_Diffusion:
 
         return g
 
-    def _compute_spin_echo_timing(self, rf90, rf180, epi, diff_dur):
+    def _compute_spin_echo_timing(self, rf90, rf180, epi, diff_dur, extra_pre_delay=0.0):
         """Compute delays that force EPI center to coincide with spin echo."""
         rf90_after = rf90.get_duration() - rf90.get_timing()[1]["center_incl_delay"]
         rf180_center = rf180.get_timing()[1]["center_incl_delay"]
         rf180_after = rf180.get_duration() - rf180_center
         epi_to_te = epi.get_timeToTE()["timeToTE"]
 
-        left = rf90_after + diff_dur + rf180_center
+        extra_pre_delay = max(0.0, float(extra_pre_delay))
+        left = rf90_after + extra_pre_delay + diff_dur + rf180_center
         right = rf180_after + diff_dur + epi_to_te
         half_te = max(left, right)
 
@@ -101,7 +102,7 @@ class pSeq_Diffusion:
             "rf180_duration": rf180.get_duration(),
             "delay1": d1,
             "delay2": d2,
-            "pre_lobe_delay": rf90_after,
+            "pre_lobe_delay": rf90_after + extra_pre_delay,
             "inter_lobe_delay": d1 + rf180.get_duration() + d2,
             "te": 2.0 * max(left_aligned, right_aligned),
             "spin_echo_mismatch": mismatch,
@@ -134,7 +135,15 @@ class pSeq_Diffusion:
         b_s_m2 = np.sum((q ** 2) * dt)
         return float(b_s_m2 * 1e-6)
 
-    def prep_monopolar(self, rf90, rf180, epi, target_b_s_mm2=None, verbose=True):
+    def prep_monopolar(
+        self,
+        rf90,
+        rf180,
+        epi,
+        target_b_s_mm2=None,
+        extra_pre_delay_s=0.0,
+        verbose=True,
+    ):
         """
         Design minimum-TE monopolar diffusion lobes for target b-value.
 
@@ -173,7 +182,13 @@ class pSeq_Diffusion:
                 continue
             lobe_dur = pp.calc_duration(lobe_max)
 
-            t = self._compute_spin_echo_timing(rf90, rf180, epi, lobe_dur)
+            t = self._compute_spin_echo_timing(
+                rf90,
+                rf180,
+                epi,
+                lobe_dur,
+                extra_pre_delay=extra_pre_delay_s,
+            )
             b_max = self._b_from_lobe_timing(
                 lobe=lobe_max,
                 amp_scale=1.0,

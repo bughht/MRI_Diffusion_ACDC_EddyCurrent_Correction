@@ -270,58 +270,44 @@ class pSeq_EPI_base(pSeq_Base):
     
     
     def add_ghost_nav(self,pseq0):
-        
-        #self.gxPre = pp.scale_grad(self.gxPre, -1)
-        #self.gx = pp.scale_grad(self.gx, -1)
-        #print('Starting GxPre and Gx Amplitudes ', np.sign(self.gxPre.amplitude),np.sign(self.gx.amplitude ))
-        center_line = np.floor(self.Ny/2) 
-        #if self.R >1:
-        #    center_line-=1
-        if self.partFourierFactor<1:
-            center_line-= (1-self.partFourierFactor)*self.Ny
+        center_line = int(np.floor(self.Ny / 2))
+        if self.partFourierFactor < 1:
+            center_line -= int(round((1 - self.partFourierFactor) * self.Ny))
 
-   
         pseq0.seq.add_block(
             self.gxPre,
-            # pp.make_label(type = 'SET',label = 'NAV',value = 1),
-            # pp.make_label(type ='SET',label = 'LIN', value = center_line)
+            pp.make_label(type='SET', label='NAV', value=1),
+            pp.make_label(type='SET', label='LIN', value=center_line),
+        )
+
+        for i in range(1, int(self.ghost_lines) + 1):
+            lrev = pp.make_label(
+                type='SET',
+                label='REV',
+                value=int(np.sign(self.gx.amplitude) != self.ROpolarity),
             )
-        
-        # self.gx = pp.scale_grad(self.gx, -1) 
-        
-        #print('After Prep GxPre and Gx Amplitudes ', np.sign(self.gxPre.amplitude),np.sign(self.gx.amplitude ))
-        # self.nav_sign_track = []
-        for i in range(1,self.ghost_lines+1):
-            # lrev = pp.make_label(type ='SET', label = 'REV', value = int(np.sign(self.gx.amplitude) != self.ROpolarity ))
-            llin = pp.make_label(type = 'SET', label = 'LIN', value = i-1)
-            # resultREV = int(np.sign(self.gx.amplitude) == self.ROpolarity)
-            # resultSEG = int(np.sign(self.gx.amplitude) == self.ROpolarity)
-            # resultAVG = int(i == self.ghost_lines)
+            llin = pp.make_label(type='SET', label='LIN', value=i - 1)
+            pseq0.seq.add_block(self.gx, self.adc, lrev, llin)
+            self.gx.amplitude = -self.gx.amplitude
 
-            # self.nav_sign_track.append(resultREV)
-            
+        # Return to k-space center before entering the diffusion module.
+        # Odd navigator count ends at +kx edge; even ends at -kx edge.
+        nav_rewinder = self.gxPre if (int(self.ghost_lines) % 2 == 1) else pp.scale_grad(self.gxPre, -1)
+        pseq0.seq.add_block(nav_rewinder, pp.make_label(type='SET', label='NAV', value=0))
 
-            # pseq0.seq.add_block(
-                # pp.make_label(type ='SET',label ='REV', value = resultREV),
-                # pp.make_label(type = 'SET',label = 'LIN', value = i-1),
-            #         pp.make_label(type = 'SET',label = 'SEG', value = resultSEG), 
-            #         pp.make_label(type = 'SET',label ='AVG', value = resultAVG ) ) 
-            # )
+        # Ensure imaging EPI always starts with the nominal readout polarity.
+        if np.sign(self.gx.amplitude) != self.ROpolarity:
+            self.gx.amplitude = -self.gx.amplitude
 
-            # pseq0.seq.add_block(self.gx,self.adc, lrev, llin
-            # pseq0.seq.add_block(self.gx,self.adc, llin
-            pseq0.seq.add_block(self.gx,self.adc,
-                                # pp.make_label(type='SET', label='LIN', value=i-1)
-                                )
-            self.gx.amplitude = -self.gx.amplitude #;   % Reverse polarity of read gradient
-            
-        # 24.08.08 Need to add rewinder back to center of k-space for epi to work
-        # pseq0.seq.add_block(self.gxPre,pp.make_label(type = 'SET',label = 'NAV',value = 0))
-        
-        #print('After Prep GxPre and Gx Amplitudes ', np.sign(self.gxPre.amplitude),np.sign(self.gx.amplitude ))
-        
-        self.gx.amplitude = -self.gx.amplitude #;   % Reverse polarity of read gradient
-        #self.gxPre = pp.scale_grad(self.gxPre, -1)
+    def add_ghost_nav_nolabel(self, pseq0):
+        pseq0.seq.add_block(self.gxPre)
+        for _ in range(int(self.ghost_lines)):
+            pseq0.seq.add_block(self.gx, self.adc)
+            self.gx.amplitude = -self.gx.amplitude
+        nav_rewinder = self.gxPre if (int(self.ghost_lines) % 2 == 1) else pp.scale_grad(self.gxPre, -1)
+        pseq0.seq.add_block(nav_rewinder)
+        if np.sign(self.gx.amplitude) != self.ROpolarity:
+            self.gx.amplitude = -self.gx.amplitude
 
 
         
@@ -351,7 +337,7 @@ class pSeq_EPI_base(pSeq_Base):
     def get_timeToTE(self,save=True):
         durationToCenter = (self.Ny_pre+0.5)*pp.calc_duration(self.gx)
         pre_duration = pp.calc_duration(self.gxPre,self.gyPre)
-        ghost_nav = pp.calc_duration(self.gxPre) + pp.calc_duration(self.gx)*self.ghost_lines
+        ghost_nav = 2 * pp.calc_duration(self.gxPre) + pp.calc_duration(self.gx) * self.ghost_lines
         if save:
             timings = {'durationToCenter': durationToCenter,
                     'pre_duration': pre_duration,
