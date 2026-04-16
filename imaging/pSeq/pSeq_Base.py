@@ -14,6 +14,13 @@ class pSeq_Base:
             self.channels = pseq.channels
 
         else:
+            explicit_system = kwargs.pop("system", None)
+            if explicit_system is not None and isinstance(explicit_system, Opts):
+                self.system = explicit_system
+                self.channels = channels
+                self.seq = pp.Sequence(system=self.system)
+                return
+
             # Some defaults 
             opt_args = {"grad_unit": "mT/m", 
                         "slew_unit": "T/m/s",
