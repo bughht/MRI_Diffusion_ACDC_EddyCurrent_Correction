@@ -1,5 +1,6 @@
 imaging/scan_data
 imaging/seq
 imaging/skope_data
+imaging/skope_reader
 
 __pycache__
