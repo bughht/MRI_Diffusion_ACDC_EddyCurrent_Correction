@@ -6,6 +6,7 @@ from .pSeq_FatSat import pSeq_FatSat
 from .pSeq_RF import pSeq_RF
 from .pSeq_Diffusion import pSeq_Diffusion
 from .pSeq_GRE_multi_echo import pSeq_GRE_multi_echo
+from .pSeq_FieldCam_Calib import pSeq_FieldCam_Calib
 
 __all__ = [
     'pSeq_Base',
@@ -15,5 +16,6 @@ __all__ = [
     'pSeq_FatSat',
     'pSeq_RF',
     'pSeq_Diffusion',
-    'pSeq_GRE_multi_echo'
+    'pSeq_GRE_multi_echo',
+    'pSeq_FieldCam_Calib'
 ]
