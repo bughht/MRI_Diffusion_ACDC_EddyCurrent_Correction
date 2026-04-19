@@ -4,3 +4,4 @@ imaging/skope_data
 imaging/skope_reader
 
 __pycache__
+.vscode
