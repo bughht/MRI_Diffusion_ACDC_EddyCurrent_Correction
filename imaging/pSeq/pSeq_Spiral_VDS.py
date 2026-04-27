@@ -380,6 +380,28 @@ class pSeq_Spiral_VDS(pSeq_Base):
                 if abs(g_nodes[-1]) > 1e-12:
                     g_nodes = np.concatenate((g_nodes, np.array([0.0 + 0.0j], dtype=complex)))
 
+            # Guard against tiny floating-point overshoots at the hard slew limit
+            # when converting to per-axis extended trapezoids.
+            base_len = len(g_nodes_base)
+            if len(g_nodes) > 1:
+                slew_x = np.diff(np.real(g_nodes)) / self.dt
+                slew_y = np.diff(np.imag(g_nodes)) / self.dt
+                slew_peak = max(float(np.max(np.abs(slew_x))), float(np.max(np.abs(slew_y))))
+            else:
+                slew_peak = 0.0
+
+            if slew_peak > smax_hz:
+                # Auto-correct only small exceedances; larger violations indicate
+                # a real design issue and should fail loudly.
+                if slew_peak <= 1.02 * smax_hz:
+                    scale = (smax_hz * (1.0 - 1e-6)) / slew_peak
+                    g_nodes = g_nodes * scale
+                    g_nodes_base = g_nodes[:base_len]
+                else:
+                    raise RuntimeError(
+                        f"Spiral slew exceeds max_slew by {(slew_peak / smax_hz - 1.0) * 100.0:.2f}% before event creation."
+                    )
+
             t_nodes = np.arange(len(g_nodes), dtype=float) * self.dt
 
             # k-space for acquisition portion (before ramp tail).
