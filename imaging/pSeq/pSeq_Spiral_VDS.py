@@ -264,16 +264,18 @@ class pSeq_Spiral_VDS(pSeq_Base):
             self.accel_effective = float(best[0])
             return best[1]
 
-    def _make_rewinder_pair(self, end_k):
-        ax = -float(np.real(end_k))
-        ay = -float(np.imag(end_k))
+    def _make_rewinder_pair(self, ax, ay):
+        """Create a rewinder gradient pair with exact area cancellation.
 
+        Uses iterative correction to compensate for gradient raster discretization
+        so that the rewinder trapezoid area exactly matches the requested value.
+        """
         gx = None
         gy = None
         if abs(ax) > 1e-9:
-            gx = pp.make_trapezoid(channel="x", system=self.system, area=ax)
+            gx = self._make_trapezoid_exact_area(channel="x", area_target=ax)
         if abs(ay) > 1e-9:
-            gy = pp.make_trapezoid(channel="y", system=self.system, area=ay)
+            gy = self._make_trapezoid_exact_area(channel="y", area_target=ay)
 
         if gx is None and gy is None:
             return None, None
@@ -283,6 +285,21 @@ class pSeq_Spiral_VDS(pSeq_Base):
             gy = pp.make_trapezoid(channel="y", system=self.system, area=0.0, duration=pp.calc_duration(gx))
         gx, gy = pp.align(right=gx, left=gy)
         return gx, gy
+
+    def _make_trapezoid_exact_area(self, channel, area_target, max_iter=5, tol=1e-12):
+        """Create a trapezoid whose actual area matches the target within tolerance.
+
+        Iteratively corrects for gradient raster discretization errors.
+        """
+        area_req = float(area_target)
+        g = pp.make_trapezoid(channel=channel, system=self.system, area=area_req)
+        for _ in range(max_iter):
+            err = area_target - g.area
+            if abs(err) < tol:
+                break
+            area_req += err
+            g = pp.make_trapezoid(channel=channel, system=self.system, area=area_req)
+        return g
 
     def prep(self, adc_dwell=None):
         """Prepare spiral trajectory, ADC, and rotated interleaf gradient events."""
@@ -437,22 +454,29 @@ class pSeq_Spiral_VDS(pSeq_Base):
             adc_ktraj = k_nodes_full[seg_idx] + g0 * dtau + 0.5 * s0 * (dtau ** 2)
 
             end_k = k_nodes_full[-1]
-            rew = self._make_rewinder_pair(end_k)
+            # Rewinder is created dynamically in add_to_seq() to ensure
+            # exact cancellation of the actual played gradient area (which
+            # may differ slightly after pypulseq's block discretization).
 
             self._interleaf_events.append((gx, gy))
             self._interleaf_ktraj.append(k_rot)
             self._interleaf_adc_ktraj.append(adc_ktraj)
             self._interleaf_endk.append(end_k)
             self._rampdowns.append((None, None))
-            self._rewinders.append(rew)
+            self._rewinders.append(None)  # Will be populated in add_to_seq()
 
         block_main_dur = pp.calc_duration(*self._interleaf_events[0], self.adc)
         ro_dur = acq_grad_dur
         rd_dur = max(0.0, block_main_dur - acq_grad_dur)
 
+        # Estimate rewinder duration from a temporary rewinder for the first interleaf.
+        gx0, gy0 = self._interleaf_events[0]
         rew_dur = 0.0
-        if self._rewinders[0][0] is not None and self._rewinders[0][1] is not None:
-            rew_dur = pp.calc_duration(*self._rewinders[0])
+        if abs(gx0.area) > 1e-9 or abs(gy0.area) > 1e-9:
+            gx_tmp = self._make_trapezoid_exact_area(channel="x", area_target=-gx0.area)
+            gy_tmp = self._make_trapezoid_exact_area(channel="y", area_target=-gy0.area)
+            gx_tmp, gy_tmp = pp.align(right=gx_tmp, left=gy_tmp)
+            rew_dur = pp.calc_duration(gx_tmp)
 
         self.readout_duration = float(ro_dur)
         self.rampdown_duration = float(rd_dur)
@@ -527,6 +551,17 @@ class pSeq_Spiral_VDS(pSeq_Base):
             pseq0.seq.add_block(gx_rd, gy_rd)
 
         if add_rewinder:
-            gx_rw, gy_rw = self._rewinders[idx]
-            if gx_rw is not None and gy_rw is not None:
-                pseq0.seq.add_block(gx_rw, gy_rw)
+            # Retrieve the ACTUAL gradient events from the sequence block to
+            # get their true areas after pypulseq's block discretization.
+            # This ensures the rewinder exactly cancels what was actually played.
+            last_block_idx = len(pseq0.seq.block_events)
+            played_block = pseq0.seq.get_block(last_block_idx)
+            played_gx = getattr(played_block, 'gx', None)
+            played_gy = getattr(played_block, 'gy', None)
+
+            if played_gx is not None and played_gy is not None:
+                ax = -played_gx.area
+                ay = -played_gy.area
+                gx_rw, gy_rw = self._make_rewinder_pair(ax, ay)
+                if gx_rw is not None and gy_rw is not None:
+                    pseq0.seq.add_block(gx_rw, gy_rw)
