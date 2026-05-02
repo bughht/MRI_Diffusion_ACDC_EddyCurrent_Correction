@@ -2,6 +2,7 @@ imaging/scan_data
 imaging/seq
 imaging/skope_data
 imaging/skope_reader
+imaging/ACDC_fieldmap_data
 
 __pycache__
 .vscode
